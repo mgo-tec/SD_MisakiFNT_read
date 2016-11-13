@@ -1,6 +1,6 @@
 /*
   SD_MisakiFNT_read.cpp - for ESP-WROOM-02 ( esp8266 )
-  Beta version 1.0
+  Beta version 1.1
   This is the Arduino library for reading Misaki font. (For ESP8266 & SD card) 
   
 The MIT License (MIT)
@@ -30,6 +30,9 @@ SOFTWARE.
 #include "Arduino.h"
 #include "SD_MisakiFNT_read.h"
 #include "SD.h"
+
+uint8_t bridge_buf1[8] = {0,0,0,0,0,0,0,0};
+boolean Zenkaku_bridge = false;
 
 SD_MisakiFNT_read::SD_MisakiFNT_read(){}
 
@@ -153,6 +156,84 @@ Serial.print(')');
   }
   return cp;
 }
+//*******************美咲フォント一括変換*************************************************************
+uint16_t SD_MisakiFNT_read::Sjis_To_MisakiFNT_Read_ALL(File FNT_file_8x8, File FNT_file_4x8, uint8_t Direction, int16_t Angle, uint8_t sj_txt[], uint16_t sj_length, uint8_t buf[][8])
+{
+	uint16_t fnt_adrs_half;
+  uint8_t i;
+	uint16_t cnt = 0;
+	uint16_t buf_cnt = 0;
+  
+	for(cnt=0; cnt<sj_length; cnt++){
+		uint8_t dummy_buf1[8] = {0,0,0,0,0,0,0,0};
+  	uint8_t dummy_buf2[8] = {0,0,0,0,0,0,0,0};
+  	uint8_t dummy_buf3[8] = {0,0,0,0,0,0,0,0};
+		uint8_t dummy_buf4[8] = {0,0,0,0,0,0,0,0};
+		
+		if((Zenkaku_bridge == true) || (sj_txt[cnt]>=0x20 && sj_txt[cnt]<=0x7F) || (sj_txt[cnt]>=0xA1 && sj_txt[cnt]<=0xDF)){
+			if(Zenkaku_bridge == true){
+				for(i=0; i<8; i++){
+					dummy_buf1[i] = bridge_buf1[i] << 4;
+				}
+			}else{
+				fnt_adrs_half = 0x110 + (sj_txt[cnt] - 0x20)*8;
+				SD_MisakiFNT_read::SD_MisakiFontRead(FNT_file_4x8, fnt_adrs_half, dummy_buf1);
+			}
+			Zenkaku_bridge = false;
+			
+			if(cnt + 1 < sj_length){
+				cnt++;
+			}else{
+				for(i=0; i<8; i++){
+					buf[buf_cnt][i] = dummy_buf1[i];
+				}
+				return buf_cnt + 1;
+				break;
+			}
+			
+			if((sj_txt[cnt]>=0x20 && sj_txt[cnt]<=0x7F) || (sj_txt[cnt]>=0xA1 && sj_txt[cnt]<=0xDF)){
+				fnt_adrs_half = 0x110 + (sj_txt[cnt] - 0x20)*8;
+
+				SD_MisakiFNT_read::SD_MisakiFontRead(FNT_file_4x8, fnt_adrs_half, dummy_buf2);
+
+				for(i=0; i<8; i++){
+					dummy_buf2[i] = dummy_buf2[i]>>4;
+					buf[buf_cnt][i] = dummy_buf1[i] | dummy_buf2[i];
+				}			
+
+				Zenkaku_bridge = false;
+				
+			}else if((sj_txt[cnt]>=0x81 && sj_txt[cnt]<=0x9F) || (sj_txt[cnt]>=0xE0 && sj_txt[cnt]<=0xEA)){
+				SD_MisakiFNT_read::Sjis_To_Misaki_Font_Adrs(FNT_file_8x8, sj_txt[cnt], sj_txt[cnt+1], dummy_buf3);
+				for( uint8_t col = 0; col < 8; col++ ) {
+					for( uint8_t row = 0; row < 8; row++ ) {
+						bitWrite( dummy_buf4[7-row], 7-col , bitRead( dummy_buf3[col], 7-row ) );
+					}
+				}
+				for(i=0; i<8; i++){
+					bridge_buf1[i] = dummy_buf4[i];
+					buf[buf_cnt][i] = dummy_buf1[i] | dummy_buf4[i]>>4;
+				}
+
+				Zenkaku_bridge = true;
+			}
+			
+			buf_cnt++;
+			
+		}else if((sj_txt[cnt]>=0x81 && sj_txt[cnt]<=0x9F) || (sj_txt[cnt]>=0xE0 && sj_txt[cnt]<=0xEA)){
+			SD_MisakiFNT_read::Sjis_To_Misaki_Font_Adrs(FNT_file_8x8, sj_txt[cnt], sj_txt[cnt+1], dummy_buf3);
+			for( uint8_t col = 0; col < 8; col++ ) {
+				for( uint8_t row = 0; row < 8; row++ ) {
+					bitWrite( buf[buf_cnt][7-row], 7-col , bitRead( dummy_buf3[col], 7-row ) );
+				}
+			}
+			cnt++;
+			buf_cnt++;
+			Zenkaku_bridge = false;
+		}
+	}
+	return buf_cnt;
+}
 //*******************Shift_JISコードから美咲フォントアドレス計算********************************************
 void SD_MisakiFNT_read::Sjis_To_Misaki_Font_Adrs(File f, uint8_t jisH, uint8_t jisL, uint8_t* buf) 
 {    // S-JISコードからMisakiフォントファイル上のバイト位置をポインタで返す。
@@ -200,7 +281,6 @@ void SD_MisakiFNT_read::Sjis_To_Misaki_Font_Adrs(File f, uint8_t jisH, uint8_t j
   
   SD_MisakiFNT_read::SD_MisakiFontRead(f, fnt_adrs, buf);
 }
-
 //*****************フォントファイル読み込み**************************************
 void SD_MisakiFNT_read::SD_MisakiFontRead(File f1, uint16_t addrs, uint8_t* buf)
 {

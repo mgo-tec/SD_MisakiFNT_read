@@ -1,4 +1,5 @@
 SD_MisakiFNT_read	KEYWORD1
 Sjis_To_MisakiFNT_DotRead	KEYWORD2
+Sjis_To_MisakiFNT_Read_ALL	KEYWORD2
 Sjis_To_Misaki_Font_Adrs	KEYWORD2
 SD_MisakiFontRead	KEYWORD2
